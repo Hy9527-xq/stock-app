@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.spec
+
+# 虚拟环境
+venv/
+env/
+
+# 构建产物
+build/
+dist/
+
+# IDE
+.vscode/
+.idea/
+
+# 数据库（本地数据不提交）
+data/records.db
+
+# 临时文件
+*.log
+*.tmp
+/tmp/
+
+# 系统文件
+Thumbs.db
+Desktop.ini

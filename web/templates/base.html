@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>股票分析</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+    <meta name="theme-color" content="#1B2838">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="股票分析">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-192.png') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <!-- 顶部导航栏 -->
+    <nav class="top-nav" id="topNav">
+        <a href="/" class="nav-item {{ 'active' if request.path == '/' }}" data-page="return">
+            📊 收益率
+        </a>
+        <a href="/recovery" class="nav-item {{ 'active' if request.path == '/recovery' }}" data-page="recovery">
+            💰 回本
+        </a>
+        <a href="/records" class="nav-item {{ 'active' if request.path == '/records' }}" data-page="records">
+            📁 记录
+        </a>
+    </nav>
+
+    <!-- 主内容区 -->
+    <main class="main-content" id="mainContent">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Toast 提示 -->
+    <div class="toast" id="toast"></div>
+
+    <!-- 安装提示（PWA） -->
+    <div class="install-banner" id="installBanner" style="display:none;">
+        <span>📱 添加到桌面，像 App 一样使用</span>
+        <button class="btn btn-sm btn-primary" id="installBtn">添加</button>
+        <button class="btn btn-sm btn-ghost" id="dismissBtn">✕</button>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+    {% block scripts %}{% endblock %}
+
+    <!-- Service Worker 注册 -->
+    <script>
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register("{{ url_for('static', filename='sw.js') }}");
+    }
+    </script>
+</body>
+</html>

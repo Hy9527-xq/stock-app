@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% block content %}
+<!-- 功能二：回本计算器 -->
+
+<div class="card">
+    <div class="card-title">💰 回本计算器</div>
+
+    <div class="form-group">
+        <label class="form-label">股票代码</label>
+        <input type="text" id="stockCode" class="form-input"
+               placeholder="输入股票代码，如 600519">
+    </div>
+
+    <div class="form-row">
+        <div class="form-group">
+            <label class="form-label">买入日期</label>
+            <input type="date" id="buyDate" class="form-input">
+        </div>
+        <div class="form-group">
+            <label class="form-label">买入价格</label>
+            <input type="number" id="buyPrice" class="form-input"
+                   placeholder="如 1400.00" step="0.01">
+        </div>
+    </div>
+
+    <button class="btn btn-primary btn-block" id="calcBtn" onclick="doCalculate()">
+        计算
+    </button>
+
+    <div class="status" id="calcStatus"></div>
+</div>
+
+<!-- 结果卡片 -->
+<div class="card" id="resultCard" style="display:none;">
+    <div class="card-title">计算结果</div>
+    <div class="result-item">
+        <span class="result-label">买入成本</span>
+        <span class="result-value" id="rBuyCost">--</span>
+    </div>
+    <div class="result-item">
+        <span class="result-label">买入当日收盘</span>
+        <span class="result-value" id="rBuyClose">--</span>
+    </div>
+    <div class="result-item">
+        <span class="result-label">当日涨跌</span>
+        <span class="result-value" id="rBuyPct">--</span>
+    </div>
+    <div class="result-item">
+        <span class="result-label">回本日期</span>
+        <span class="result-value" id="rBeDate">--</span>
+    </div>
+    <div class="result-item">
+        <span class="result-label">等待天数</span>
+        <span class="result-value" id="rDays">--</span>
+    </div>
+    <div class="result-item">
+        <span class="result-label">回本收盘价</span>
+        <span class="result-value" id="rBeClose">--</span>
+    </div>
+    <div class="status" id="rMsg" style="margin-top:6px;"></div>
+</div>
+
+<!-- 价格走势图 -->
+<div class="card" id="chartCard" style="display:none;">
+    <div class="card-title">价格走势图</div>
+    <div class="chart-box">
+        <canvas id="priceChart"></canvas>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let priceChart = null;
+
+async function doCalculate() {
+    const stockCode = document.getElementById('stockCode').value.trim();
+    const buyDate = document.getElementById('buyDate').value.replace(/-/g, '');
+    const buyPrice = document.getElementById('buyPrice').value.trim();
+
+    if (!stockCode) { showToast('请输入股票代码'); return; }
+    if (!buyDate) { showToast('请选择买入日期'); return; }
+    if (!buyPrice || isNaN(parseFloat(buyPrice))) { showToast('请输入有效的买入价格'); return; }
+
+    const btn = document.getElementById('calcBtn');
+    btn.disabled = true;
+    btn.textContent = '计算中...';
+    setStatus('calcStatus', '正在计算...', 'info');
+
+    const resp = await api('/api/recovery', {
+        stock_code: stockCode,
+        buy_date: buyDate,
+        buy_price: buyPrice,
+    });
+
+    btn.disabled = false;
+    btn.textContent = '计算';
+
+    if (!resp.success) {
+        setStatus('calcStatus', resp.message, 'error');
+        return;
+    }
+
+    setStatus('calcStatus', '', 'info');
+    showResult(resp.result);
+    drawPriceChart(resp);
+}
+
+function showResult(r) {
+    document.getElementById('resultCard').style.display = '';
+    document.getElementById('rBuyCost').textContent = '¥ ' + r.buy_price.toFixed(2);
+    document.getElementById('rBuyClose').textContent = '¥ ' + r.buy_day_close.toFixed(2);
+
+    const pctEl = document.getElementById('rBuyPct');
+    pctEl.textContent = (r.buy_day_pct >= 0 ? '+' : '') + r.buy_day_pct.toFixed(2) + '%';
+    pctEl.style.color = r.buy_day_pct >= 0 ? 'var(--green)' : 'var(--red)';
+
+    const beDateEl = document.getElementById('rBeDate');
+    const daysEl = document.getElementById('rDays');
+    const beCloseEl = document.getElementById('rBeClose');
+    const msgEl = document.getElementById('rMsg');
+
+    if (r.found) {
+        beDateEl.textContent = r.breakeven_date;
+        beDateEl.style.color = 'var(--green)';
+        daysEl.textContent = r.days_waited + ' 个交易日';
+        beCloseEl.textContent = '¥ ' + r.breakeven_close.toFixed(2);
+        beCloseEl.style.color = 'var(--green)';
+        setStatus('rMsg', r.message, 'success');
+    } else {
+        beDateEl.textContent = '尚未回本';
+        beDateEl.style.color = 'var(--red)';
+        daysEl.textContent = '--';
+        beCloseEl.textContent = '--';
+        setStatus('rMsg', r.message, 'error');
+    }
+}
+
+function drawPriceChart(resp) {
+    document.getElementById('chartCard').style.display = '';
+    if (priceChart) priceChart.destroy();
+    const ctx = document.getElementById('priceChart').getContext('2d');
+
+    const labels = resp.chart_dates;
+    const closes = resp.chart_closes;
+    const buyPrice = resp.buy_price;
+    const result = resp.result;
+
+    // 买入价水平线 → 两个额外数据点作为虚线参考
+    const buyLine = labels.map(() => buyPrice);
+
+    // 标注点
+    const buyPoint = labels.map((l, i) => {
+        return (l === result.buy_date) ? closes[i] : null;
+    });
+    const bePoint = labels.map((l, i) => {
+        if (!result.found) return null;
+        return (l === result.breakeven_date) ? closes[i] : null;
+    });
+
+    priceChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: '收盘价',
+                    data: closes,
+                    borderColor: '#2E86DE',
+                    borderWidth: 1.2,
+                    pointRadius: 0,
+                    tension: 0.1,
+                },
+                {
+                    label: '买入价 ¥' + buyPrice.toFixed(2),
+                    data: buyLine,
+                    borderColor: '#E74C3C',
+                    borderWidth: 1,
+                    borderDash: [6, 4],
+                    pointRadius: 0,
+                    fill: false,
+                },
+                {
+                    label: '买入日',
+                    data: buyPoint,
+                    borderColor: '#E74C3C',
+                    backgroundColor: '#E74C3C',
+                    pointRadius: 6,
+                    pointStyle: 'triangle',
+                    showLine: false,
+                    rotation: 180,
+                },
+                {
+                    label: '回本日',
+                    data: bePoint,
+                    borderColor: '#27AE60',
+                    backgroundColor: '#27AE60',
+                    pointRadius: 7,
+                    pointStyle: 'circle',
+                    showLine: false,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    labels: { font: { size: 10 }, boxWidth: 12, padding: 10 },
+                },
+            },
+            scales: {
+                x: {
+                    ticks: { maxTicksLimit: 8, font: { size: 9 }, maxRotation: 45 },
+                    grid: { display: false },
+                },
+                y: {
+                    ticks: { font: { size: 10 } },
+                    grid: { color: 'rgba(0,0,0,0.06)' },
+                },
+            },
+        },
+    });
+}
+</script>
+{% endblock %}

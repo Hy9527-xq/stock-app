@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% block content %}
+<!-- 功能一：收益率查询 -->
+
+<!-- 搜索区域 -->
+<div class="card">
+    <div class="card-title">📊 收益率查询</div>
+
+    <div class="form-group search-wrapper">
+        <label class="form-label">股票</label>
+        <input type="text" id="stockInput" class="form-input"
+               placeholder="输入股票代码，如 600519" autocomplete="off">
+        <div class="search-results" id="searchResults"></div>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group">
+            <label class="form-label">起始日期</label>
+            <input type="date" id="startDate" class="form-input">
+        </div>
+        <div class="form-group">
+            <label class="form-label">结束日期</label>
+            <input type="date" id="endDate" class="form-input">
+        </div>
+    </div>
+
+    <button class="btn btn-primary btn-block" id="queryBtn" onclick="doQuery()">
+        查询
+    </button>
+
+    <div class="status" id="queryStatus"></div>
+</div>
+
+<!-- 图表区域 -->
+<div class="card" id="chartCard" style="display:none;">
+    <div class="card-title">收益率曲线</div>
+    <div class="chart-box">
+        <canvas id="returnChart"></canvas>
+    </div>
+    <div style="text-align:center;" id="totalReturn"></div>
+</div>
+
+<!-- 数据表格 -->
+<div class="card" id="tableCard" style="display:none;">
+    <div class="card-title">每日数据</div>
+    <div class="table-scroll">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>日期</th><th>开盘价</th><th>收盘价</th><th>涨跌幅(%)</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 保存按钮 -->
+<button class="btn btn-success btn-block" id="saveBtn" style="display:none;"
+        onclick="doSave()">💾 保存此次查询</button>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let returnChart = null;
+let currentQuery = null;
+
+// ---- 股票搜索（输入时触发） ----
+let searchTimer = null;
+document.getElementById('stockInput').addEventListener('input', function() {
+    clearTimeout(searchTimer);
+    const kw = this.value.trim();
+    if (!kw) {
+        document.getElementById('searchResults').classList.remove('show');
+        return;
+    }
+    searchTimer = setTimeout(async () => {
+        const resp = await api('/api/search?keyword=' + encodeURIComponent(kw));
+        const box = document.getElementById('searchResults');
+        if (!resp.success || !resp.results) {
+            box.classList.remove('show');
+            return;
+        }
+        box.innerHTML = resp.results.map(r =>
+            `<div class="search-result-item" onclick="selectStock('${r.code}','${r.name}')">
+                <span class="name">${r.name}</span><span class="code">${r.code}</span>
+            </div>`
+        ).join('');
+        box.classList.add('show');
+    }, 300);
+});
+
+// 点击其他地方关闭搜索下拉
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.search-wrapper')) {
+        document.getElementById('searchResults').classList.remove('show');
+    }
+});
+
+function selectStock(code, name) {
+    document.getElementById('stockInput').value = code;
+    document.getElementById('searchResults').classList.remove('show');
+}
+
+// ---- 查询 ----
+async function doQuery() {
+    const stockCode = document.getElementById('stockInput').value.trim();
+    const startDate = document.getElementById('startDate').value.replace(/-/g, '');
+    const endDate = document.getElementById('endDate').value.replace(/-/g, '');
+
+    if (!stockCode) { showToast('请输入股票代码'); return; }
+    if (!startDate || !endDate) { showToast('请选择日期范围'); return; }
+
+    const btn = document.getElementById('queryBtn');
+    btn.disabled = true;
+    btn.textContent = '查询中...';
+    setStatus('queryStatus', '正在获取数据...', 'info');
+
+    const resp = await api('/api/query', {
+        stock_code: stockCode, start_date: startDate, end_date: endDate
+    });
+
+    btn.disabled = false;
+    btn.textContent = '查询';
+
+    if (!resp.success) {
+        setStatus('queryStatus', resp.message, 'error');
+        return;
+    }
+
+    currentQuery = {
+        stock_code: stockCode,
+        start_date: startDate,
+        end_date: endDate,
+        return_pct: resp.total_return,
+    };
+
+    setStatus('queryStatus',
+        '查询完成 | 区间涨跌幅: ' + (resp.total_return >= 0 ? '+' : '') +
+        resp.total_return.toFixed(2) + '% | 共 ' + resp.daily_data.length + ' 个交易日',
+        resp.total_return >= 0 ? 'success' : 'error');
+
+    drawReturnChart(resp.date_labels, resp.return_rates);
+    renderTable(resp.daily_data);
+
+    document.getElementById('totalReturn').innerHTML =
+        '<span style="font-size:1.1rem;font-weight:700;color:' +
+        (resp.total_return >= 0 ? 'var(--green)' : 'var(--red)') + ';">' +
+        '区间涨跌幅: ' + (resp.total_return >= 0 ? '+' : '') +
+        resp.total_return.toFixed(2) + '%</span>';
+
+    document.getElementById('chartCard').style.display = '';
+    document.getElementById('tableCard').style.display = '';
+    document.getElementById('saveBtn').style.display = '';
+}
+
+// ---- 收益率曲线 ----
+function drawReturnChart(labels, data) {
+    if (returnChart) returnChart.destroy();
+    const ctx = document.getElementById('returnChart').getContext('2d');
+
+    returnChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '累计收益率 (%)',
+                data: data,
+                borderColor: '#2E86DE',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                fill: true,
+                backgroundColor: 'rgba(46,134,222,0.08)',
+                tension: 0.1,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: true, labels: { font: { size: 11 }, boxWidth: 12 } },
+            },
+            scales: {
+                x: {
+                    ticks: { maxTicksLimit: 8, font: { size: 9 }, maxRotation: 45 },
+                    grid: { display: false },
+                },
+                y: {
+                    ticks: {
+                        font: { size: 10 },
+                        callback: v => v.toFixed(1) + '%',
+                    },
+                    grid: { color: 'rgba(0,0,0,0.06)' },
+                },
+            },
+        },
+    });
+}
+
+// ---- 数据表格 ----
+function renderTable(rows) {
+    const tbody = document.getElementById('tableBody');
+    tbody.innerHTML = rows.map(r => {
+        const changeClr = r.change >= 0 ? 'var(--green)' : 'var(--red)';
+        const changeSign = r.change >= 0 ? '+' : '';
+        return `<tr>
+            <td>${r.date}</td>
+            <td>${r.open.toFixed(2)}</td>
+            <td>${r.close.toFixed(2)}</td>
+            <td style="color:${changeClr};font-weight:600;">${changeSign}${r.change.toFixed(2)}</td>
+        </tr>`;
+    }).join('');
+}
+
+// ---- 保存 ----
+async function doSave() {
+    if (!currentQuery) return;
+    const resp = await api('/api/save', currentQuery);
+    if (resp.success) {
+        showToast(resp.message);
+    } else {
+        showToast(resp.message);
+    }
+}
+
+// ---- 从记录页跳转回来时回显 ----
+function restoreQuery(stockCode, startDate, endDate) {
+    document.getElementById('stockInput').value = stockCode;
+    document.getElementById('startDate').value = fmtDate(startDate);
+    document.getElementById('endDate').value = fmtDate(endDate);
+    doQuery();
+}
+
+// ---- 页面加载时检查 URL 参数（从记录页跳转） ----
+document.addEventListener('DOMContentLoaded', () => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const start = params.get('start');
+    const end = params.get('end');
+    if (code && start && end) {
+        restoreQuery(code, start, end);
+    }
+});
+</script>
+{% endblock %}

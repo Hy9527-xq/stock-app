@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block content %}
+<!-- 功能三：我的记录 -->
+
+<div class="card">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+        <div class="card-title" style="margin-bottom:0;flex:1;">📁 我的记录</div>
+        <button class="btn btn-sm btn-primary" id="btnAll" onclick="switchView('all')">全部</button>
+        <button class="btn btn-sm btn-ghost" id="btnYear" onclick="switchView('year')">按年度</button>
+    </div>
+</div>
+
+<div id="recordsContainer">
+    <div style="text-align:center;padding:40px 0;color:var(--text-secondary);">
+        暂无保存的记录
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let viewMode = 'all';
+let allRecords = [];
+
+// ---- 加载记录 ----
+async function loadRecords() {
+    const resp = await api('/api/records/list');
+    if (!resp.success || !resp.records.length) {
+        document.getElementById('recordsContainer').innerHTML =
+            '<div style="text-align:center;padding:40px 0;color:var(--text-secondary);">暂无保存的记录</div>';
+        return;
+    }
+    allRecords = resp.records;
+    renderRecords();
+}
+
+function switchView(mode) {
+    viewMode = mode;
+    document.getElementById('btnAll').className =
+        mode === 'all' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost';
+    document.getElementById('btnYear').className =
+        mode === 'year' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost';
+    renderRecords();
+}
+
+function renderRecords() {
+    const c = document.getElementById('recordsContainer');
+    if (viewMode === 'all') {
+        c.innerHTML = allRecords.map(r => recordRow(r, false)).join('');
+    } else {
+        c.innerHTML = renderYearly();
+    }
+}
+
+function renderYearly() {
+    // 按年度 → 月份分组
+    const years = {};
+    allRecords.forEach(r => {
+        const y = r.category_year;
+        const m = r.category_month;
+        if (!years[y]) years[y] = {};
+        if (!years[y][m]) years[y][m] = [];
+        years[y][m].push(r);
+    });
+
+    let html = '';
+    const sortedYears = Object.keys(years).sort((a,b) => b-a);
+    sortedYears.forEach(year => {
+        html += `<div class="record-group-title">📁 ${year}年</div>`;
+        const sortedMonths = Object.keys(years[year]).sort((a,b) => b-a);
+        sortedMonths.forEach(month => {
+            const recs = years[year][month];
+            html += `<div class="record-month-title">📅 ${month}月 (${recs.length} 条)</div>`;
+            recs.forEach(r => { html += recordRow(r, true); });
+        });
+    });
+    return html || '<div style="text-align:center;padding:40px 0;color:var(--text-secondary);">暂无保存的记录</div>';
+}
+
+function recordRow(r, indent) {
+    const retCls = r.return_pct >= 0 ? 'positive' : 'negative';
+    const retSign = r.return_pct >= 0 ? '+' : '';
+    return `
+    <div class="record-row" style="${indent ? 'margin-left:12px;' : ''}">
+        <div class="record-info">
+            <div class="code">${r.stock_code}</div>
+            <div class="date-range">${fmtDateDisplay(r.start_date)} ~ ${fmtDateDisplay(r.end_date)}</div>
+        </div>
+        <span class="record-return ${retCls}">${retSign}${r.return_pct.toFixed(2)}%</span>
+        <button class="btn btn-sm btn-primary" onclick="viewRecord('${r.stock_code}','${r.start_date}','${r.end_date}')">查看</button>
+        <button class="btn btn-sm btn-danger" onclick="delRecord(${r.id})">🗑</button>
+    </div>`;
+}
+
+// ---- 查看记录 → 跳转功能一 ----
+function viewRecord(code, start, end) {
+    const url = '/?code=' + encodeURIComponent(code) +
+                '&start=' + encodeURIComponent(start) +
+                '&end=' + encodeURIComponent(end);
+    window.location.href = url;
+}
+
+// ---- 删除记录 ----
+async function delRecord(id) {
+    if (!confirm('确定要删除这条记录吗？此操作不可撤销。')) return;
+    const resp = await api('/api/records/delete', { id: id });
+    if (resp.success) {
+        showToast('删除成功');
+        loadRecords();
+    } else {
+        showToast(resp.message);
+    }
+}
+
+// ---- 页面加载 ----
+document.addEventListener('DOMContentLoaded', loadRecords);
+</script>
+{% endblock %}
