@@ -1,0 +1,28 @@
+{
+    "builds": [
+        {
+            "src": "api/stock.py",
+            "use": "@vercel/python"
+        },
+        {
+            "src": "web/**",
+            "use": "@vercel/static"
+        }
+    ],
+    "routes": [
+        {
+            "src": "/api/(.*)",
+            "dest": "/api/stock"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "/web/$1"
+        }
+    ],
+    "rewrites": [
+        {
+            "source": "/",
+            "destination": "/web/index.html"
+        }
+    ]
+}
