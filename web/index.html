@@ -95,16 +95,19 @@
 <div class="toast" id="toast"></div>
 
 <script>
+// ====== API 配置 ======
+// 东方财富 K 线 API（支持 CORS: Access-Control-Allow-Origin: *）
+const EM_URL = 'https://push2his.eastmoney.com/api/qt/stock/kline/get';
+
+// 股票代码 → 东方财富 secid 格式
+function codeToSecid(code){
+    code=code.trim();
+    if(code.startsWith('sh')||/^[69]/.test(code)) return '1.'+code.replace(/^(sh|sz|bj)/,'');
+    if(code.startsWith('sz')||/^[023]/.test(code)) return '0.'+code.replace(/^(sh|sz|bj)/,'');
+    return '1.'+code;
+}
+
 // ====== 全局工具 ======
-const SINA_URL = 'https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData';
-// CORS 代理列表 + Vercel API 兜底
-const CORS_PROXIES = [
-    (url) => url,
-    (url) => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url),
-    (url) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url),
-    (url) => 'https://corsproxy.io/?' + encodeURIComponent(url),
-];
-const VERCEL_API = 'https://stock-app-pi-amber.vercel.app/api/stock';
 
 function showToast(msg, dur=2000){
     const e=document.getElementById('toast');
@@ -118,70 +121,30 @@ function setStatus(id,msg,type){
 function fmtDate(d){const s=String(d).replace(/-/g,'');return s.length===8?s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8):d;}
 function fmtDateDisp(d){return fmtDate(d).replace(/-/g,'.');}
 
-// 股票代码转新浪格式
-function codeToSymbol(code){
-    code=code.trim();
-    if(/^(sh|sz|bj)/.test(code))return code;
-    if(/^[69]/.test(code))return 'sh'+code;
-    if(/^[023]/.test(code))return 'sz'+code;
-    if(/^8/.test(code))return 'bj'+code;
-    return 'sh'+code;
-}
-
-// JSONP 方式获取数据（绕过 CORS）
-function fetchKlineJsonp(url, timeout=10000){
-    return new Promise((resolve, reject)=>{
-        const cbName='_jsonp_'+Date.now()+'_'+Math.floor(Math.random()*1000);
-        const script=document.createElement('script');
-        const timer=setTimeout(()=>{
-            cleanup();
-            reject(new Error('JSONP请求超时'));
-        },timeout);
-        function cleanup(){
-            clearTimeout(timer);
-            delete window[cbName];
-            if(script.parentNode)script.parentNode.removeChild(script);
-        }
-        window[cbName]=function(data){
-            cleanup();
-            resolve(data);
-        };
-        script.src=url+'&callback='+cbName;
-        script.onerror=()=>{cleanup();reject(new Error('JSONP加载失败'));};
-        document.head.appendChild(script);
-    });
-}
-
-// 通过代理获取新浪 K 线数据
+// 东方财富 K 线数据（直接 fetch，支持 CORS）
 async function fetchKline(code, datalen=500){
-    const symbol=codeToSymbol(code);
-    const url=SINA_URL+'?symbol='+symbol+'&scale=240&ma=no&datalen='+datalen;
+    const secid=codeToSecid(code);
+    const url=EM_URL+'?secid='+secid+'&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&lmt='+datalen;
 
-    // 方法1：JSONP（最可靠，无CORS问题）
-    try{return await fetchKlineJsonp(url);}catch(e){}
+    const resp=await fetch(url);
+    const json=await resp.json();
 
-    // 方法2：CORS 代理
-    for(let i=0; i<CORS_PROXIES.length; i++){
-        try{
-            const resp=await fetch(CORS_PROXIES[i](url));
-            return await resp.json();
-        }catch(e){}
+    if(!json||!json.data||!json.data.klines){
+        throw new Error('未找到股票数据，请检查代码');
     }
 
-    // 方法3：Vercel API
-    try{
-        const resp=await fetch(VERCEL_API+'?action=query&code='+encodeURIComponent(code)+'&start=&end=');
-        const json=await resp.json();
-        if(json.success){
-            const raw=[];
-            for(let i=0;i<json.date_labels.length;i++){
-                raw.push({day:json.date_labels[i],close:json.daily_data[i]?.close,open:json.daily_data[i]?.open});
-            }
-            return raw;
-        }
-    }catch(e){}
-
-    throw new Error('所有数据源均无法连接');
+    // 东方财富格式: "日期,开盘,最高,最低,收盘,成交量,成交额,..."
+    return json.data.klines.map(line=>{
+        const parts=line.split(',');
+        return {
+            day: parts[0],
+            open: parts[1],
+            close: parts[4],
+            high: parts[2],
+            low: parts[3],
+            volume: parts[5]
+        };
+    });
 }
 
 // 计算收益率
