@@ -138,8 +138,7 @@ async function tryTencent(code,start,end){
   if(!raw||!raw.data||!raw.data[sym])return null;
   const days=raw.data[sym].qfqday||raw.data[sym].day||[];
   if(!days.length)return null;
-  const s=start.replace(/-/g,''),e=end.replace(/-/g,'');
-  return days.filter(d=>d[0]>=s&&d[0]<=e).map(d=>({day:d[0],open:d[1],close:d[2]}));
+  return days.filter(d=>d[0]>=start&&d[0]<=end).map(d=>({day:d[0],open:d[1],close:d[2]}));
 }
 
 // 源2：东方财富 API（JSONP）
