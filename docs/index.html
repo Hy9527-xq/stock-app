@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>股票分析</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#1B2838">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="/static/icon-192.png">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- 顶部导航 -->
+<nav class="top-nav">
+    <a class="nav-item active" data-tab="return" onclick="switchTab('return')">📊 收益率</a>
+    <a class="nav-item" data-tab="recovery" onclick="switchTab('recovery')">💰 回本</a>
+    <a class="nav-item" data-tab="records" onclick="switchTab('records')">📁 记录</a>
+</nav>
+
+<main class="main-content">
+
+<!-- ====== 收益率查询页 ====== -->
+<div id="tab-return" class="tab-page">
+<div class="card">
+    <div class="card-title">📊 收益率查询</div>
+    <div class="form-group">
+        <label class="form-label">股票代码</label>
+        <input type="text" id="stockCode" class="form-input" placeholder="如 600519">
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label class="form-label">起始</label><input type="date" id="startDate" class="form-input"></div>
+        <div class="form-group"><label class="form-label">结束</label><input type="date" id="endDate" class="form-input"></div>
+    </div>
+    <button class="btn btn-primary btn-block" id="queryBtn" onclick="doQuery()">查询</button>
+    <div class="status" id="queryStatus"></div>
+</div>
+<div class="card" id="chartCard" style="display:none">
+    <div class="card-title">收益率曲线</div>
+    <div class="chart-box"><canvas id="returnChart"></canvas></div>
+    <div id="totalReturn" style="text-align:center;padding:4px;"></div>
+</div>
+<div class="card" id="tableCard" style="display:none">
+    <div class="card-title">每日数据</div>
+    <div class="table-scroll"><table class="data-table"><thead><tr><th>日期</th><th>开盘</th><th>收盘</th><th>涨跌%</th></tr></thead><tbody id="tableBody"></tbody></table></div>
+</div>
+<button class="btn btn-success btn-block" id="saveBtn" style="display:none" onclick="doSave()">💾 保存此次查询</button>
+</div>
+
+<!-- ====== 回本计算页 ====== -->
+<div id="tab-recovery" class="tab-page" style="display:none">
+<div class="card">
+    <div class="card-title">💰 回本计算器</div>
+    <div class="form-group"><label class="form-label">股票代码</label><input type="text" id="rcStock" class="form-input" placeholder="如 600519"></div>
+    <div class="form-row">
+        <div class="form-group"><label class="form-label">买入日期</label><input type="date" id="rcDate" class="form-input"></div>
+        <div class="form-group"><label class="form-label">买入价格</label><input type="number" id="rcPrice" class="form-input" placeholder="如 1400.00" step="0.01"></div>
+    </div>
+    <button class="btn btn-primary btn-block" id="rcBtn" onclick="doRecovery()">计算</button>
+    <div class="status" id="rcStatus"></div>
+</div>
+<div class="card" id="rcResultCard" style="display:none">
+    <div class="card-title">计算结果</div>
+    <div class="result-item"><span class="result-label">买入成本</span><span class="result-value" id="rBuyCost">--</span></div>
+    <div class="result-item"><span class="result-label">买入当日收盘</span><span class="result-value" id="rBuyClose">--</span></div>
+    <div class="result-item"><span class="result-label">当日涨跌</span><span class="result-value" id="rBuyPct">--</span></div>
+    <div class="result-item"><span class="result-label">回本日期</span><span class="result-value" id="rBeDate">--</span></div>
+    <div class="result-item"><span class="result-label">等待天数</span><span class="result-value" id="rDays">--</span></div>
+    <div class="result-item"><span class="result-label">回本收盘价</span><span class="result-value" id="rBeClose">--</span></div>
+    <div class="status" id="rMsg" style="margin-top:6px"></div>
+</div>
+<div class="card" id="rcChartCard" style="display:none">
+    <div class="card-title">价格走势</div>
+    <div class="chart-box"><canvas id="priceChart"></canvas></div>
+</div>
+</div>
+
+<!-- ====== 我的记录页 ====== -->
+<div id="tab-records" class="tab-page" style="display:none">
+<div class="card">
+    <div style="display:flex;align-items:center;gap:4px;">
+        <div class="card-title" style="flex:1;">📁 我的记录</div>
+        <button class="btn btn-sm btn-primary" id="btnAll" onclick="switchRecView('all')">全部</button>
+        <button class="btn btn-sm btn-ghost" id="btnYear" onclick="switchRecView('year')">按年度</button>
+    </div>
+</div>
+<div id="recordsContainer"></div>
+</div>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ====== 全局工具 ======
+const SINA_URL = 'https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData';
+// CORS 代理列表（依次尝试）
+const CORS_PROXIES = [
+    (url) => url,  // 先尝试直连
+    (url) => 'https://corsproxy.io/?' + encodeURIComponent(url),
+    (url) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url),
+];
+
+function showToast(msg, dur=2000){
+    const e=document.getElementById('toast');
+    e.textContent=msg; e.classList.add('show');
+    clearTimeout(e._t); e._t=setTimeout(()=>e.classList.remove('show'),dur);
+}
+function setStatus(id,msg,type){
+    const e=document.getElementById(id);
+    if(e){e.textContent=msg;e.className='status status-'+type;}
+}
+function fmtDate(d){const s=String(d).replace(/-/g,'');return s.length===8?s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8):d;}
+function fmtDateDisp(d){return fmtDate(d).replace(/-/g,'.');}
+
+// 股票代码转新浪格式
+function codeToSymbol(code){
+    code=code.trim();
+    if(/^(sh|sz|bj)/.test(code))return code;
+    if(/^[69]/.test(code))return 'sh'+code;
+    if(/^[023]/.test(code))return 'sz'+code;
+    if(/^8/.test(code))return 'bj'+code;
+    return 'sh'+code;
+}
+
+// 通过代理获取新浪 K 线数据
+async function fetchKline(code, datalen=500){
+    const symbol=codeToSymbol(code);
+    const url=SINA_URL+'?symbol='+symbol+'&scale=240&ma=no&datalen='+datalen;
+
+    for(let i=0; i<CORS_PROXIES.length; i++){
+        try{
+            const resp=await fetch(CORS_PROXIES[i](url));
+            return await resp.json();
+        }catch(e){
+            if(i===CORS_PROXIES.length-1)throw e;
+        }
+    }
+    throw new Error('所有代理均无法连接');
+}
+
+// 计算收益率
+function calcReturn(raw){
+    if(!raw||!raw.length)return{dates:[],rates:[],closes:[],daily:[],total:0};
+    const base=parseFloat(raw[0].close);
+    const dates=[], rates=[], closes=[], daily=[];
+    let prev=null;
+    raw.forEach(r=>{
+        const o=parseFloat(r.open), c=parseFloat(r.close);
+        dates.push(r.day); closes.push(round2(c));
+        rates.push(round2((c/base-1)*100));
+        const chg=prev!==null?round2((c-prev)/prev*100):round2((c-o)/o*100);
+        daily.push({date:r.day,open:round2(o),close:round2(c),change:chg});
+        prev=c;
+    });
+    return{dates,rates,closes,daily,total:rates[rates.length-1]||0};
+}
+function round2(v){return Math.round(v*100)/100;}
+
+// 查找回本日期
+function findBreakeven(raw, buyPrice){
+    buyPrice=parseFloat(buyPrice);
+    for(let i=0;i<raw.length;i++){
+        if(parseFloat(raw[i].close)>=buyPrice){
+            return{found:true,date:raw[i].day,close:round2(parseFloat(raw[i].close)),days:i};
+        }
+    }
+    const last=raw[raw.length-1];
+    return{found:false,date:null,close:null,days:null,
+        lastClose:round2(parseFloat(last.close)),
+        lossPct:round2((parseFloat(last.close)-buyPrice)/buyPrice*100)};
+}
+
+async function apiStk(code,start,end){
+    let raw=await fetchKline(code);
+    if(start||end){
+        raw=raw.filter(r=>(!start||r.day>=start)&&(!end||r.day<=end));
+    }
+    return raw;
+}
+
+// ====== 标签切换 ======
+function switchTab(tab){
+    document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.tab===tab));
+    document.querySelectorAll('.tab-page').forEach(p=>p.style.display='none');
+    const page=document.getElementById('tab-'+tab);
+    if(page)page.style.display='';
+    if(tab==='records')loadRecords();
+    if(tab==='return'){
+        // 检查 URL 参数（从记录页跳转）
+        const p=new URLSearchParams(location.search);
+        const c=p.get('code'),s=p.get('start'),e=p.get('end');
+        if(c&&s&&e){document.getElementById('stockCode').value=c;document.getElementById('startDate').value=fmtDate(s);document.getElementById('endDate').value=fmtDate(e);doQuery();}
+    }
+}
+
+// ====== 功能一：收益率查询 ======
+let returnChart=null, currentQuery=null;
+
+async function doQuery(){
+    const code=document.getElementById('stockCode').value.trim();
+    const start=document.getElementById('startDate').value.replace(/-/g,'');
+    const end=document.getElementById('endDate').value.replace(/-/g,'');
+    if(!code){showToast('请输入股票代码');return;}
+    if(!start||!end){showToast('请选择日期');return;}
+
+    const btn=document.getElementById('queryBtn');
+    btn.disabled=true;btn.textContent='查询中...';
+    setStatus('queryStatus','正在获取数据...','info');
+
+    try{
+        const raw=await apiStk(code,start,end);
+        if(!raw.length){setStatus('queryStatus','未找到数据，请检查股票代码和日期','error');btn.disabled=false;btn.textContent='查询';return;}
+        const result=calcReturn(raw);
+
+        currentQuery={code,start,end,return_pct:result.total};
+        setStatus('queryStatus','查询完成 | 涨跌: '+(result.total>=0?'+':'')+result.total.toFixed(2)+'% | '+result.daily.length+'天',result.total>=0?'success':'error');
+
+        // 图表
+        if(returnChart)returnChart.destroy();
+        const ctx=document.getElementById('returnChart').getContext('2d');
+        returnChart=new Chart(ctx,{
+            type:'line',data:{labels:result.dates,datasets:[{label:'累计收益率(%)',data:result.rates,borderColor:'#2E86DE',borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:'rgba(46,134,222,0.08)',tension:0.1}]},
+            options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{font:{size:11},boxWidth:12}}},scales:{x:{ticks:{maxTicksLimit:8,font:{size:9},maxRotation:45},grid:{display:false}},y:{ticks:{font:{size:10},callback:v=>v.toFixed(1)+'%'},grid:{color:'rgba(0,0,0,0.06)'}}}}
+        });
+
+        document.getElementById('tableBody').innerHTML=result.daily.map(r=>`<tr><td>${r.date}</td><td>${r.open.toFixed(2)}</td><td>${r.close.toFixed(2)}</td><td style="color:${r.change>=0?'var(--green)':'var(--red)'};font-weight:600;">${r.change>=0?'+':''}${r.change.toFixed(2)}</td></tr>`).join('');
+        document.getElementById('totalReturn').innerHTML='<span style="font-size:1.1rem;font-weight:700;color:'+(result.total>=0?'var(--green)':'var(--red)')+';">区间涨跌幅: '+(result.total>=0?'+':'')+result.total.toFixed(2)+'%</span>';
+        document.getElementById('chartCard').style.display='';document.getElementById('tableCard').style.display='';document.getElementById('saveBtn').style.display='';
+    }catch(e){
+        setStatus('queryStatus','获取数据失败: '+e.message,'error');
+    }
+    btn.disabled=false;btn.textContent='查询';
+}
+
+function doSave(){
+    if(!currentQuery)return;
+    const records=JSON.parse(localStorage.getItem('stock_records')||'[]');
+    records.unshift({...currentQuery,id:Date.now(),created_at:new Date().toISOString()});
+    localStorage.setItem('stock_records',JSON.stringify(records));
+    showToast('已保存到我的记录');
+}
+
+// ====== 功能二：回本计算 ======
+let priceChart=null;
+
+async function doRecovery(){
+    const code=document.getElementById('rcStock').value.trim();
+    const buyDate=document.getElementById('rcDate').value.replace(/-/g,'');
+    const buyPrice=parseFloat(document.getElementById('rcPrice').value.trim());
+    if(!code){showToast('请输入股票代码');return;}
+    if(!buyDate){showToast('请选择买入日期');return;}
+    if(!buyPrice||isNaN(buyPrice)){showToast('请输入有效价格');return;}
+
+    const btn=document.getElementById('rcBtn');
+    btn.disabled=true;btn.textContent='计算中...';
+    setStatus('rcStatus','正在计算...','info');
+
+    try{
+        const raw=await fetchKline(code);
+        const filtered=raw.filter(r=>r.day>=buyDate);
+        if(!filtered.length){setStatus('rcStatus','买入日期超出数据范围','error');btn.disabled=false;btn.textContent='计算';return;}
+
+        const buyDay=filtered[0];
+        const buyOpen=parseFloat(buyDay.open),buyClose=parseFloat(buyDay.close);
+        const buyPct=round2((buyClose-buyOpen)/buyOpen*100);
+        const beResult=findBreakeven(filtered,buyPrice);
+
+        const r={
+            buy_price:buyPrice,buy_open:round2(buyOpen),buy_close:round2(buyClose),
+            buy_pct:buyPct,buy_date:buyDay.day,
+            found:beResult.found,breakeven_date:beResult.date,
+            breakeven_close:beResult.close,days_waited:beResult.days,
+            last_close:beResult.lastClose,loss_pct:beResult.lossPct,
+            message:beResult.found?
+                '回本日期 '+beResult.date+'，等待 '+beResult.days+' 个交易日':
+                '截至 '+filtered[filtered.length-1].day+' 尚未回本，亏损 '+(beResult.lossPct>=0?'+':'')+beResult.lossPct+'%'
+        };
+
+        document.getElementById('rcResultCard').style.display='';
+        document.getElementById('rBuyCost').textContent='¥ '+r.buy_price.toFixed(2);
+        document.getElementById('rBuyClose').textContent='¥ '+r.buy_close.toFixed(2);
+        const pct=document.getElementById('rBuyPct');pct.textContent=(r.buy_pct>=0?'+':'')+r.buy_pct.toFixed(2)+'%';pct.style.color=r.buy_pct>=0?'var(--green)':'var(--red)';
+        if(r.found){
+            document.getElementById('rBeDate').textContent=r.breakeven_date;document.getElementById('rBeDate').style.color='var(--green)';
+            document.getElementById('rDays').textContent=r.days_waited+' 个交易日';
+            document.getElementById('rBeClose').textContent='¥ '+r.breakeven_close.toFixed(2);document.getElementById('rBeClose').style.color='var(--green)';
+            setStatus('rMsg',r.message,'success');
+        }else{
+            document.getElementById('rBeDate').textContent='尚未回本';document.getElementById('rBeDate').style.color='var(--red)';
+            document.getElementById('rDays').textContent='--';document.getElementById('rBeClose').textContent='--';
+            setStatus('rMsg',r.message,'error');
+        }
+
+        document.getElementById('rcChartCard').style.display='';
+        if(priceChart)priceChart.destroy();
+        const ctx=document.getElementById('priceChart').getContext('2d');
+        const chartDates=filtered.map(r=>r.day);
+        const chartCloses=filtered.map(r=>round2(parseFloat(r.close)));
+        const buyLine=chartDates.map(()=>buyPrice);
+        priceChart=new Chart(ctx,{
+            type:'line',data:{labels:chartDates,datasets:[
+                {label:'收盘价',data:chartCloses,borderColor:'#2E86DE',borderWidth:1.2,pointRadius:0,tension:0.1},
+                {label:'买入价 ¥'+buyPrice.toFixed(2),data:buyLine,borderColor:'#E74C3C',borderWidth:1,borderDash:[6,4],pointRadius:0,fill:false},
+                {label:'买入日',data:chartDates.map((l,i)=>(l===r.buy_date)?chartCloses[i]:null),backgroundColor:'#E74C3C',pointRadius:6,pointStyle:'triangle',showLine:false,rotation:180},
+                {label:'回本日',data:chartDates.map((l,i)=>r.found&&l===r.breakeven_date?chartCloses[i]:null),backgroundColor:'#27AE60',pointRadius:7,pointStyle:'circle',showLine:false},
+            ]},
+            options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{font:{size:10},boxWidth:12}}},scales:{x:{ticks:{maxTicksLimit:8,font:{size:9},maxRotation:45},grid:{display:false}},y:{ticks:{font:{size:10}},grid:{color:'rgba(0,0,0,0.06)'}}}}
+        });
+    }catch(e){setStatus('rcStatus','计算失败: '+e.message,'error');}
+    btn.disabled=false;btn.textContent='计算';
+}
+
+// ====== 功能三：我的记录 ======
+let recView='all';
+
+function switchRecView(mode){
+    recView=mode;
+    document.getElementById('btnAll').className='btn btn-sm '+(mode==='all'?'btn-primary':'btn-ghost');
+    document.getElementById('btnYear').className='btn btn-sm '+(mode==='year'?'btn-primary':'btn-ghost');
+    loadRecords();
+}
+
+function loadRecords(){
+    const records=JSON.parse(localStorage.getItem('stock_records')||'[]');
+    const c=document.getElementById('recordsContainer');
+    if(!records.length){c.innerHTML='<div style="text-align:center;padding:40px;color:var(--text-secondary);">暂无保存的记录</div>';return;}
+
+    if(recView==='all'){
+        c.innerHTML=records.map(r=>recRow(r)).join('');
+    }else{
+        const years={};
+        records.forEach(r=>{
+            const y=r.start.slice(0,4),m=r.start.slice(4,6);
+            if(!years[y])years[y]={};if(!years[y][m])years[y][m]=[];years[y][m].push(r);
+        });
+        let h='';
+        Object.keys(years).sort((a,b)=>b-a).forEach(y=>{
+            h+=`<div class="record-group-title">📁 ${y}年</div>`;
+            Object.keys(years[y]).sort((a,b)=>b-a).forEach(m=>{
+                h+=`<div class="record-month-title">📅 ${m}月 (${years[y][m].length}条)</div>`;
+                years[y][m].forEach(r=>{h+=recRow(r,true);});
+            });
+        });
+        c.innerHTML=h||'<div style="text-align:center;padding:40px;">暂无记录</div>';
+    }
+}
+function recRow(r,indent){
+    const retCls=r.return_pct>=0?'positive':'negative';
+    return `<div class="record-row" style="${indent?'margin-left:12px;':''}">
+        <div class="record-info"><div class="code">${r.code}</div><div class="date-range">${fmtDateDisp(r.start)} ~ ${fmtDateDisp(r.end)}</div></div>
+        <span class="record-return ${retCls}">${r.return_pct>=0?'+':''}${r.return_pct.toFixed(2)}%</span>
+        <button class="btn btn-sm btn-primary" onclick="viewRec('${r.code}','${r.start}','${r.end}')">查看</button>
+        <button class="btn btn-sm btn-danger" onclick="delRec(${r.id})">🗑</button>
+    </div>`;
+}
+function viewRec(code,start,end){
+    location.href='/?code='+code+'&start='+start+'&end='+end;
+}
+function delRec(id){
+    if(!confirm('确定删除？'))return;
+    const records=JSON.parse(localStorage.getItem('stock_records')||'[]');
+    localStorage.setItem('stock_records',JSON.stringify(records.filter(r=>r.id!==id)));
+    loadRecords();showToast('已删除');
+}
+
+// ====== 启动 ======
+document.addEventListener('DOMContentLoaded',()=>{
+    const p=new URLSearchParams(location.search);
+    if(p.get('code')){
+        document.getElementById('stockCode').value=p.get('code');
+        document.getElementById('startDate').value=fmtDate(p.get('start'));
+        document.getElementById('endDate').value=fmtDate(p.get('end'));
+        doQuery();
+    }
+});
+</script>
+</body>
+</html>
