@@ -130,7 +130,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC"
 const WORKER = 'https://stock-api.2530391707.workers.dev';
 
 async function callApi(action, params){
-  const url = WORKER + '?action=' + action + '&' + new URLSearchParams(params).toString();
+  const url = WORKER + '/query?action=' + action + '&' + new URLSearchParams(params).toString();
   try{
     const r = await fetch(url);
     return await r.json();
