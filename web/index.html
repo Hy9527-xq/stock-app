@@ -158,8 +158,8 @@ let returnChart=null, currentQuery=null;
 
 async function doQuery(){
   const code=document.getElementById('stockCode').value.trim();
-  const start=document.getElementById('startDate').value.replace(/-/g,'');
-  const end=document.getElementById('endDate').value.replace(/-/g,'');
+  const start=document.getElementById('startDate').value;
+  const end=document.getElementById('endDate').value;
   if(!code){showToast('请输入股票代码');return}
   if(!start||!end){showToast('请选择日期');return}
   const btn=document.getElementById('queryBtn');btn.disabled=true;btn.textContent='查询中...';setStatus('queryStatus','正在获取数据...','info');
@@ -184,7 +184,7 @@ function doSave(){if(!currentQuery)return;const records=JSON.parse(localStorage.
 let priceChart=null;
 async function doRecovery(){
   const code=document.getElementById('rcStock').value.trim();
-  const buyDate=document.getElementById('rcDate').value.replace(/-/g,'');
+  const buyDate=document.getElementById('rcDate').value;
   const buyPrice=document.getElementById('rcPrice').value.trim();
   if(!code){showToast('请输入股票代码');return}
   if(!buyDate){showToast('请选择买入日期');return}
@@ -220,7 +220,7 @@ async function doRecovery(){
 // ====== 我的记录 ======
 let recView='all';
 function switchRecView(m){recView=m;document.getElementById('btnAll').className='btn btn-sm '+(m==='all'?'btn-primary':'btn-ghost');document.getElementById('btnYear').className='btn btn-sm '+(m==='year'?'btn-primary':'btn-ghost');loadRecords()}
-function loadRecords(){const records=JSON.parse(localStorage.getItem('stock_records')||'[]'),c=document.getElementById('recordsContainer');if(!records.length){c.innerHTML='<div style="text-align:center;padding:60px 0;color:var(--sub)">暂无保存的记录</div>';return}if(recView==='all'){c.innerHTML=records.map(r=>recRow(r)).join('')}else{const years={};records.forEach(r=>{const y=r.start.slice(0,4),m=r.start.slice(4,6);if(!years[y])years[y]={};if(!years[y][m])years[y][m]=[];years[y][m].push(r)});let h='';Object.keys(years).sort((a,b)=>b-a).forEach(y=>{h+='<div class="record-group-title">📁 '+y+'年</div>';Object.keys(years[y]).sort((a,b)=>b-a).forEach(m=>{h+='<div class="record-month-title">📅 '+m+'月 ('+years[y][m].length+'条)</div>';years[y][m].forEach(r=>{h+=recRow(r,true)})})});c.innerHTML=h||'<div style="text-align:center;padding:60px;color:var(--sub)">暂无记录</div>'}}
+function loadRecords(){const records=JSON.parse(localStorage.getItem('stock_records')||'[]'),c=document.getElementById('recordsContainer');if(!records.length){c.innerHTML='<div style="text-align:center;padding:60px 0;color:var(--sub)">暂无保存的记录</div>';return}if(recView==='all'){c.innerHTML=records.map(r=>recRow(r)).join('')}else{const years={};records.forEach(r=>{const y=r.start.slice(0,4),m=r.start.slice(5,7);if(!years[y])years[y]={};if(!years[y][m])years[y][m]=[];years[y][m].push(r)});let h='';Object.keys(years).sort((a,b)=>b-a).forEach(y=>{h+='<div class="record-group-title">📁 '+y+'年</div>';Object.keys(years[y]).sort((a,b)=>b-a).forEach(m=>{h+='<div class="record-month-title">📅 '+m+'月 ('+years[y][m].length+'条)</div>';years[y][m].forEach(r=>{h+=recRow(r,true)})})});c.innerHTML=h||'<div style="text-align:center;padding:60px;color:var(--sub)">暂无记录</div>'}}
 function recRow(r,indent){const cls=r.return_pct>=0?'positive':'negative';return '<div class="record-row" style="'+(indent?'margin-left:10px':'')+'"><div class="record-info"><div class="code">'+r.code+'</div><div class="date-range">'+fmtDateDisp(r.start)+' ~ '+fmtDateDisp(r.end)+'</div></div><span class="record-return '+cls+'">'+(r.return_pct>=0?'+':'')+r.return_pct.toFixed(2)+'%</span><button class="btn btn-sm btn-primary" onclick="viewRec(\''+r.code+'\',\''+r.start+'\',\''+r.end+'\')">查看</button><button class="btn btn-sm btn-danger" onclick="delRec('+r.id+')">🗑</button></div>'}
 function viewRec(code,start,end){location.href='/?code='+code+'&start='+start+'&end='+end}
 function delRec(id){if(!confirm('确定删除？'))return;const records=JSON.parse(localStorage.getItem('stock_records')||'[]');localStorage.setItem('stock_records',JSON.stringify(records.filter(r=>r.id!==id)));loadRecords();showToast('已删除')}
