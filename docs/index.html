@@ -126,16 +126,37 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC"
 <div class="toast" id="toast"></div>
 
 <script>
-// ====== 东方财富 API（国内直连，无需代理）======
-function toSecid(code){code=code.trim();return /^[69]/.test(code)?'1.'+code:'0.'+code}
+// ====== 多源数据获取（国内直连，无需代理）======
+function toSymbol(code){code=code.trim();return /^[69]/.test(code)?'sh'+code:'sz'+code}
+function jsonp(url,param){return new Promise((resolve,reject)=>{const s=document.createElement('script'),t=setTimeout(()=>{cleanup();reject(new Error('超时'))},12000);const cb='_s'+Date.now()+Math.random().toString(36).slice(2);window[cb]=function(d){clearTimeout(t);cleanup();resolve(d)};function cleanup(){delete window[cb];if(s.parentNode)s.parentNode.removeChild(s)}s.src=url+(url.includes('?')?'&':'?')+param+'='+cb;s.onerror=()=>{clearTimeout(t);cleanup();reject(new Error('网络错误'))};document.head.appendChild(s)})}
 
-function jsonp(url,cbName){return new Promise((resolve,reject)=>{const s=document.createElement('script'),t=setTimeout(()=>{cleanup();reject(new Error('超时'))},15000);window[cbName]=function(d){clearTimeout(t);cleanup();resolve(d)};function cleanup(){delete window[cbName];if(s.parentNode)s.parentNode.removeChild(s)}s.src=url+'&cb='+cbName;s.onerror=()=>{clearTimeout(t);cleanup();reject(new Error('网络错误'))};document.head.appendChild(s)})}
+// 源1：腾讯财经 API（JSONP 支持，国内最稳定）
+async function tryTencent(code,start,end){
+  const sym=toSymbol(code);
+  const url='https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param='+sym+',day,,,500,qfq';
+  const raw=await jsonp(url,'callback');
+  if(!raw||!raw.data||!raw.data[sym])return null;
+  const days=raw.data[sym].qfqday||raw.data[sym].day||[];
+  if(!days.length)return null;
+  const s=start.replace(/-/g,''),e=end.replace(/-/g,'');
+  return days.filter(d=>d[0]>=s&&d[0]<=e).map(d=>({day:d[0],open:d[1],close:d[2]}));
+}
+
+// 源2：东方财富 API（JSONP）
+async function tryEastMoney(code,start,end){
+  const secid=(/^[69]/.test(code)?'1.':'0.')+code;
+  const url='https://push2his.eastmoney.com/api/qt/stock/kline/get?secid='+secid+'&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg='+start.replace(/-/g,'')+'&end='+end.replace(/-/g,'')+'&lmt=500';
+  try{
+    const raw=await jsonp(url,'callback');
+    if(!raw||!raw.data||!raw.data.klines)return null;
+    return raw.data.klines.map(l=>{const p=l.split(',');return{day:p[0],open:p[1],close:p[2]}});
+  }catch(e){return null}
+}
 
 async function fetchStockData(code,start,end){
-  const secid=toSecid(code);
-  const url='https://push2his.eastmoney.com/api/qt/stock/kline/get?secid='+secid+'&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg='+start.replace(/-/g,'')+'&end='+end.replace(/-/g,'')+'&lmt=500';
-  const cb='_cb'+Date.now();
-  try{const raw=await jsonp(url,cb);if(!raw||!raw.data||!raw.data.klines)return null;return raw.data.klines.map(l=>{const p=l.split(',');return{day:p[0],open:p[1],close:p[2]}})}catch(e){return null}
+  try{const r=await tryTencent(code,start,end);if(r&&r.length)return r}catch(e){}
+  try{const r=await tryEastMoney(code,start,end);if(r&&r.length)return r}catch(e){}
+  return null;
 }
 
 function calcReturn(raw){
