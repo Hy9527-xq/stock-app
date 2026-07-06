@@ -131,6 +131,8 @@ function toSymbol(code){code=code.trim();return /^[69]/.test(code)?'sh'+code:'sz
 
 // 主源：腾讯财经 API（支持 CORS，国内最稳定）
 async function fetchStockData(code,start,end){
+  let lastErr='';
+
   // 尝试腾讯财经
   try{
     const sym=toSymbol(code);
@@ -140,10 +142,12 @@ async function fetchStockData(code,start,end){
     if(raw&&raw.data&&raw.data[sym]){
       const days=raw.data[sym].qfqday||raw.data[sym].day||[];
       if(days.length){
-        return days.filter(d=>d[0]>=start&&d[0]<=end).map(d=>({day:d[0],open:d[1],close:d[2]}));
-      }
-    }
-  }catch(e){}
+        const filtered=days.filter(d=>d[0]>=start&&d[0]<=end);
+        if(filtered.length) return filtered.map(d=>({day:d[0],open:d[1],close:d[2]}));
+        lastErr='日期范围无数据(API有'+days.length+'条,'+days[0][0]+'~'+days[days.length-1][0]+')';
+      }else lastErr='腾讯返回空数据';
+    }else lastErr='腾讯数据解析失败';
+  }catch(e){lastErr='腾讯请求失败:'+e.message}
 
   // 备用：东方财富 API
   try{
@@ -153,10 +157,10 @@ async function fetchStockData(code,start,end){
     const raw=await resp.json();
     if(raw&&raw.data&&raw.data.klines){
       return raw.data.klines.map(l=>{const p=l.split(',');return{day:p[0],open:p[1],close:p[2]}});
-    }
-  }catch(e){}
+    }else lastErr='东方财富无数据';
+  }catch(e){lastErr='东方财富请求失败:'+e.message}
 
-  return null;
+  throw new Error(lastErr||'所有数据源均失败');
 }
 
 function calcReturn(raw){
@@ -222,7 +226,7 @@ async function doQuery(){
     document.getElementById('chartCard').style.display='';document.getElementById('tableCard').style.display='';document.getElementById('saveBtn').style.display='';
   }catch(e){
     btn.disabled=false;btn.textContent='查询';
-    setStatus('queryStatus','网络请求失败，请检查网络连接','error');
+    setStatus('queryStatus','请求失败: '+(e.message||'未知错误'),'error');
   }
 }
 function doSave(){if(!currentQuery)return;const records=JSON.parse(localStorage.getItem('stock_records')||'[]');records.unshift({...currentQuery,id:Date.now(),created_at:new Date().toISOString()});localStorage.setItem('stock_records',JSON.stringify(records));showToast('已保存')}

@@ -1,7 +1,7 @@
 /**
  * Service Worker — PWA 离线缓存
  */
-const CACHE_NAME = 'stock-app-v2';
+const CACHE_NAME = 'stock-app-v3';
 // 只缓存静态资源，不缓存 HTML 页面（页面频繁更新）
 const URLS_TO_CACHE = [
     '/static/style.css',
@@ -35,10 +35,10 @@ self.addEventListener('activate', (event) => {
     self.clients.claim();
 });
 
-// 请求拦截：HTML 走网络优先，静态资源走缓存优先
+// 请求拦截：HTML 走网络优先，静态资源走缓存优先，跨域请求放行
 self.addEventListener('fetch', (event) => {
-    // 跳过 API 请求（始终走网络）
-    if (event.request.url.includes('/api/')) return;
+    // 放行跨域请求（腾讯/东方财富 API 等）
+    if (!event.request.url.startsWith(self.location.origin)) return;
 
     const isNavigation = event.request.mode === 'navigate';
 
