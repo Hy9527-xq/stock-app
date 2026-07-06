@@ -97,12 +97,14 @@
 <script>
 // ====== 全局工具 ======
 const SINA_URL = 'https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData';
-// CORS 代理列表（依次尝试）
+// CORS 代理列表 + Vercel API 兜底
 const CORS_PROXIES = [
-    (url) => url,  // 先尝试直连
-    (url) => 'https://corsproxy.io/?' + encodeURIComponent(url),
+    (url) => url,
+    (url) => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url),
     (url) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url),
+    (url) => 'https://corsproxy.io/?' + encodeURIComponent(url),
 ];
+const VERCEL_API = 'https://stock-app-pi-amber.vercel.app/api/stock';
 
 function showToast(msg, dur=2000){
     const e=document.getElementById('toast');
@@ -131,15 +133,29 @@ async function fetchKline(code, datalen=500){
     const symbol=codeToSymbol(code);
     const url=SINA_URL+'?symbol='+symbol+'&scale=240&ma=no&datalen='+datalen;
 
+    // 依次尝试 CORS 代理
     for(let i=0; i<CORS_PROXIES.length; i++){
         try{
             const resp=await fetch(CORS_PROXIES[i](url));
             return await resp.json();
-        }catch(e){
-            if(i===CORS_PROXIES.length-1)throw e;
-        }
+        }catch(e){}
     }
-    throw new Error('所有代理均无法连接');
+
+    // 兜底：走 Vercel API
+    try{
+        const resp=await fetch(VERCEL_API+'?action=query&code='+encodeURIComponent(code)+'&start=&end=');
+        const json=await resp.json();
+        if(json.success){
+            // Vercel 返回格式和直连不同，转换一下
+            const raw=[];
+            for(let i=0;i<json.date_labels.length;i++){
+                raw.push({day:json.date_labels[i],close:json.daily_data[i]?.close,open:json.daily_data[i]?.open});
+            }
+            return raw;
+        }
+    }catch(e){}
+
+    throw new Error('所有数据源均无法连接');
 }
 
 // 计算收益率
