@@ -195,7 +195,6 @@ function switchTab(tab){
   document.querySelectorAll('.tab-page').forEach(p=>p.style.display='none');
   const page=document.getElementById('tab-'+tab);if(page)page.style.display='';
   if(tab==='records')loadRecords();
-  if(tab==='return'){const p=new URLSearchParams(location.search);const c=p.get('code'),s=p.get('start'),e=p.get('end');if(c&&s&&e){document.getElementById('stockCode').value=c;document.getElementById('startDate').value=fmtDate(s);document.getElementById('endDate').value=fmtDate(e);doQuery()}}
 }
 
 // ====== 收益率查询 ======
